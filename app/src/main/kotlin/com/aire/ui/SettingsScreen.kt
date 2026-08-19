@@ -111,9 +111,9 @@ fun SettingsScreen(viewModel: MemoryViewModel) {
             // --- Model Switcher ---
             SettingsSection(title = "AI Model") {
                 val models = listOf(
-                    "claude-3-5-haiku-latest" to "Haiku (Fastest)",
-                    "claude-3-5-sonnet-latest" to "Sonnet (Smart)",
-                    "claude-3-opus-latest" to "Opus (Powerful)"
+                    "claude-haiku-4-5" to "Haiku (Fastest)",
+                    "claude-sonnet-5" to "Sonnet (Smart)",
+                    "claude-opus-5" to "Opus (Powerful)"
                 )
                 models.forEach { (id, label) ->
                     Row(

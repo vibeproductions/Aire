@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-enum class AppScreen { HOME, CHAT, LENS, SETTINGS, VAULT, VOICE_MODE }
+enum class AppScreen { HOME, CHAT, LENS, SETTINGS, VAULT, VOICE_MODE, HISTORY }
 
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
@@ -36,7 +36,7 @@ data class MemoryUiState(
     val currentLocation: DeviceLocation? = null,
     val availableUpdate: GitHubAsset? = null,
     val error: String? = null,
-    val aiModel: String = "claude-3-5-haiku-latest",
+    val aiModel: String = "claude-haiku-4-5",
     val appearance: String = "System",
     val locationFeaturesEnabled: Boolean = false,
     val storeLocationWithMemories: Boolean = false,
@@ -64,6 +64,11 @@ class MemoryViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val records: StateFlow<List<MemoryRecord>> = _records
+
+    private val _history = dao.observeHistory()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    
+    val history: StateFlow<List<HistoryRecordEntity>> = _history
 
     private val _searchResults = MutableStateFlow<List<MemoryRecord>>(emptyList())
     val searchResults: StateFlow<List<MemoryRecord>> = _searchResults.asStateFlow()
@@ -144,7 +149,11 @@ class MemoryViewModel(
     fun setPortalExpansion(progress: Float) {
         _uiState.update { it.copy(portalExpansion = progress) }
         if (progress >= 1f) {
-            _uiState.update { it.copy(currentScreen = AppScreen.CHAT, isPortalVisible = false, portalExpansion = 0f) }
+            viewModelScope.launch {
+                // Smooth transition: give the animation a moment to finish before switching screens
+                kotlinx.coroutines.delay(100)
+                _uiState.update { it.copy(currentScreen = AppScreen.CHAT, isPortalVisible = false, portalExpansion = 0f) }
+            }
         }
     }
 
@@ -208,27 +217,47 @@ class MemoryViewModel(
     fun sendMessage(text: String) {
         if (text.isBlank() && (uiState.value.capturedImage == null)) return
         
-        // Trigger portal if sending from Home
-        if (uiState.value.currentScreen == AppScreen.HOME) {
-            _uiState.update { it.copy(isPortalVisible = true, portalExpansion = 0f) }
-        }
-
+        val isFromHome = uiState.value.currentScreen == AppScreen.HOME
         val userImage = uiState.value.capturedImage
         val userMessage = ChatMessage(text = text, image = userImage, isUser = true)
         
-        _uiState.update { it.copy(
-            chatHistory = it.chatHistory + userMessage,
-            isThinking = true,
-            error = null,
-            capturedImage = null
-        ) }
+        // Reset chat history and trigger portal if sending from Home
+        if (isFromHome) {
+            android.util.Log.d("MemoryViewModel", "New chat initiated from Home. Switching to portal.")
+            
+            // Save to persistent History
+            viewModelScope.launch {
+                dao.insertHistory(HistoryRecordEntity(
+                    title = text.take(30) + if (text.length > 30) "..." else "",
+                    summary = "Conversational interaction",
+                    timestamp = System.currentTimeMillis()
+                ))
+            }
+
+            _uiState.update { it.copy(
+                isPortalVisible = true, 
+                portalExpansion = 0f,
+                chatHistory = listOf(userMessage),
+                isThinking = true,
+                error = null,
+                capturedImage = null
+            ) }
+        } else {
+            _uiState.update { it.copy(
+                chatHistory = it.chatHistory + userMessage,
+                isThinking = true,
+                error = null,
+                capturedImage = null
+            ) }
+        }
 
         viewModelScope.launch {
             try {
-                val apiKey = settings.anthropicApiKey.first()
-                if (!apiKey.isNullOrBlank()) {
+                // Ensure we get the latest key
+                val apiKey = settings.anthropicApiKey.filterNotNull().first()
+                if (!apiKey.isBlank()) {
                     val config = ClaudeConfig(
-                        useProxy = false, // Direct mode for user-provided key
+                        useProxy = false,
                         proxyBaseUrl = "",
                         directApiKey = apiKey,
                         proxyAuthToken = "",
@@ -239,20 +268,26 @@ class MemoryViewModel(
                     
                     val context = buildAssistantContext()
                     val response = assistant.interact(text, userImage, context)
-                    val assistantMessage = ChatMessage(text = response.explanation, isUser = false, response = response)
-                    _uiState.update { it.copy(chatHistory = it.chatHistory + assistantMessage, isThinking = false) }
                     
-                    // If in voice mode, speak the response
+                    val assistantMessage = ChatMessage(text = response.explanation, isUser = false, response = response)
+                    _uiState.update { it.copy(
+                        chatHistory = it.chatHistory + assistantMessage,
+                        isThinking = false
+                    ) }
+
                     if (uiState.value.currentScreen == AppScreen.VOICE_MODE) {
                         _uiState.update { it.copy(isSpeaking = true) }
                         voiceSynthesizer?.speak(response.explanation)
                     }
                 } else {
-                    val assistantMessage = ChatMessage(text = "Please add your Anthropic API key in Settings to enable AI.", isUser = false)
+                    android.util.Log.w("MemoryViewModel", "No API key found.")
+                    val assistantMessage = ChatMessage(text = "Please add your Anthropic API key in Settings.", isUser = false)
                     _uiState.update { it.copy(chatHistory = it.chatHistory + assistantMessage, isThinking = false) }
                 }
             } catch (t: Throwable) {
-                _uiState.update { it.copy(isThinking = false, error = t.friendlyMessage()) }
+                android.util.Log.e("MemoryViewModel", "AI Error", t)
+                val errorMessage = ChatMessage(text = "Error: ${t.message}", isUser = false)
+                _uiState.update { it.copy(chatHistory = it.chatHistory + errorMessage, isThinking = false, error = t.friendlyMessage()) }
             }
         }
     }

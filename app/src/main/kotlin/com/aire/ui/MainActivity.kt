@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
                             AppScreen.SETTINGS -> SettingsScreen(vm)
                             AppScreen.VAULT -> VaultScreen(vm)
                             AppScreen.VOICE_MODE -> VoiceModeScreen(vm)
+                            AppScreen.HISTORY -> HistoryScreen(vm)
                         }
                     }
 

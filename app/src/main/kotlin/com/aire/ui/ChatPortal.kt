@@ -1,19 +1,21 @@
 package com.aire.ui
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,7 +28,7 @@ import kotlin.math.sqrt
 @Composable
 fun ChatPortal(
     viewModel: MemoryViewModel,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val ui by viewModel.uiState.collectAsState()
     val currentPortalExpansion by rememberUpdatedState(ui.portalExpansion)
@@ -34,133 +36,97 @@ fun ChatPortal(
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp.dp
     val screenHeight = configuration.screenHeightDp.dp
+    val density = LocalDensity.current
     
+    // 1. Initial Morph State: Bar -> Circle
+    var isMorphed by remember { mutableStateOf(value = false) }
+    LaunchedEffect(Unit) {
+        isMorphed = true
+    }
+
+    // Portal base dimensions (matching the chat bar)
+    val barWidth = screenWidth - 48.dp
+    val barHeight = 64.dp
+    val barCornerRadius = 32.dp
+
+    // Animate dimensions from Bar to Circle
+    val currentBaseHeight by animateDpAsState(
+        targetValue = if (isMorphed) barWidth else barHeight,
+        animationSpec = spring(stiffness = 400f, dampingRatio = 0.7f),
+        label = "morphHeight"
+    )
+    val currentCornerRadius by animateDpAsState(
+        targetValue = if (isMorphed) barWidth / 2 else barCornerRadius,
+        animationSpec = spring(stiffness = 400f, dampingRatio = 0.7f),
+        label = "morphCorners"
+    )
+
+    // 2. Expansion Animation: Circle -> Full Screen
     val expansion by animateFloatAsState(
         targetValue = ui.portalExpansion,
+        animationSpec = spring(stiffness = 600f, dampingRatio = 0.8f),
         label = "expansion"
     )
 
-    val density = LocalDensity.current
-    val baseSize = 240.dp
-    val baseSizePx = with(density) { baseSize.toPx() }
-    
+    val baseSizePx = with(density) { barWidth.toPx() }
     val screenDiagonal = sqrt((screenWidth.value * screenWidth.value) + (screenHeight.value * screenHeight.value))
-    val targetScale = (screenDiagonal / baseSize.value) * 1.2f
+    val targetScale = (screenDiagonal / barWidth.value) * 1.5f
     val currentScale = 1f + (expansion * (targetScale - 1f))
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.4f * (1f - expansion)))
-            .pointerInput(Unit) {
-                var gestureMaxExpansion = 0f
-                var isDragAccepted = false
-                var dragStartPoint: Offset? = null
-                
-                detectDragGestures(
-                    onDragStart = { offset -> 
-                        val centerX = size.width / 2f
-                        val centerY = size.height / 2f
-                        val distFromCenter = sqrt((offset.x - centerX) * (offset.x - centerX) + (offset.y - centerY) * (offset.y - centerY))
-                        
-                        // Only start if touch is inside the portal bubble
-                        if (distFromCenter <= (baseSizePx / 2f)) {
-                            dragStartPoint = offset
-                            gestureMaxExpansion = currentPortalExpansion
-                            isDragAccepted = true
-                        } else {
-                            dragStartPoint = null
-                            isDragAccepted = false
-                        }
-                    },
-                    onDrag = { change, _ ->
-                        if (!isDragAccepted) return@detectDragGestures
-                        val start = dragStartPoint ?: return@detectDragGestures
-                        change.consume()
-                        
-                        val currentPos = change.position
-                        val distFromStart = sqrt((currentPos.x - start.x) * (currentPos.x - start.x) + (currentPos.y - start.y) * (currentPos.y - start.y))
-                        
-                        // Density-aware drag range (500dp)
-                        val dragRangePx = with(density) { 500.dp.toPx() }
-                        val newExpansion = (distFromStart / dragRangePx).coerceIn(0f, 1f)
-                        
-                        if (newExpansion > gestureMaxExpansion) {
-                            gestureMaxExpansion = newExpansion
-                            viewModel.setPortalExpansion(newExpansion)
-                        }
-                    },
-                    onDragEnd = {
-                        if (isDragAccepted) {
-                            if (gestureMaxExpansion > 0.3f) {
-                                viewModel.setPortalExpansion(1f)
-                            } else {
-                                viewModel.setPortalExpansion(0f)
-                            }
-                        }
-                        gestureMaxExpansion = 0f
-                        isDragAccepted = false
-                        dragStartPoint = null
-                    },
-                    onDragCancel = {
-                        if (isDragAccepted) {
-                            viewModel.setPortalExpansion(0f)
-                        }
-                        gestureMaxExpansion = 0f
-                        isDragAccepted = false
-                        dragStartPoint = null
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                var cumulativeZoom = 1f
-                detectTransformGestures { _, _, zoom, _ ->
-                    cumulativeZoom *= zoom
-                    if (cumulativeZoom < 0.7f) {
-                        viewModel.closePortal()
-                        cumulativeZoom = 1f // Reset after trigger
-                    }
-                }
-            },
+            .background(Color.Black.copy(alpha = 0.5f * (1f - expansion))),
         contentAlignment = Alignment.Center
     ) {
-        // The Portal Bubble
+        // --- The Portal Bubble (Morphing & Expanding) ---
         Surface(
             modifier = Modifier
-                .size(baseSize)
+                .width(barWidth)
+                .height(currentBaseHeight)
                 .graphicsLayer {
                     scaleX = currentScale
                     scaleY = currentScale
+                    alpha = 1f
                 }
-                .clip(CircleShape),
+                .clip(RoundedCornerShape(currentCornerRadius))
+                .clickable { viewModel.setPortalExpansion(1f) },
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 8.dp,
             shadowElevation = 12.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
-                // Content (The Chat Screen)
+                // Fixed-size content container (The real Chat Screen)
                 Box(modifier = Modifier
                     .requiredSize(screenWidth, screenHeight)
                     .graphicsLayer {
                         scaleX = 1f / currentScale
                         scaleY = 1f / currentScale
+                        // Alpha-blend content in as we expand
+                        alpha = (expansion * 1.5f).coerceIn(0f, 1f)
                     }
                 ) {
                     content()
                 }
                 
-                if (expansion < 0.5f) {
-                    val lastAssistantMessage = ui.chatHistory.lastOrNull { !it.isUser }
-                    
+                // --- Preview / Guidance Overlay ---
+                val lastAssistantMessage = ui.chatHistory.lastOrNull { !it.isUser }
+                // Overlay visibility: Visible during morph, fades during expansion
+                val overlayAlpha = (1f - (expansion * 2.5f)).coerceIn(0f, 1f)
+                
+                if (overlayAlpha > 0f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f * (1f - (expansion * 2).coerceIn(0f, 1f))))
-                            .padding(24.dp),
+                            .alpha(overlayAlpha)
+                            .background(MaterialTheme.colorScheme.surface),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (ui.isThinking && lastAssistantMessage == null) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(32.dp)
+                        ) {
+                            if (ui.isThinking && (lastAssistantMessage == null)) {
                                 CircularProgressIndicator(modifier = Modifier.size(48.dp))
                                 Spacer(Modifier.height(16.dp))
                                 Text("Aire is thinking...", style = MaterialTheme.typography.bodyMedium)
@@ -171,23 +137,64 @@ fun ChatPortal(
                                     text = lastAssistantMessage.text,
                                     style = MaterialTheme.typography.bodyMedium,
                                     textAlign = TextAlign.Center,
-                                    maxLines = 4
+                                    maxLines = 6
                                 )
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(16.dp))
                                 Text(
-                                    "Pull outward to open",
+                                    "PULL TO OPEN",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
                                 Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.height(16.dp))
-                                Text("Pull outward to open chat", style = MaterialTheme.typography.labelLarge)
+                                Text("Pull outward to open", style = MaterialTheme.typography.labelLarge)
                             }
                         }
                     }
                 }
             }
         }
+
+        // --- GESTURE LAYER ---
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    var cumulativeZoom = 1f
+                    var gestureMaxExpansion = 0f
+                    
+                    detectTransformGestures { centroid, _, zoom, _ ->
+                        // 1. PINCH TO EXIT
+                        if (zoom != 1f) {
+                            cumulativeZoom *= zoom
+                            if (cumulativeZoom < 0.7f) {
+                                viewModel.closePortal()
+                                cumulativeZoom = 1f
+                            }
+                        }
+
+                        // 2. RADIAL PULL TO EXPAND
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val dx = centroid.x - centerX
+                        val dy = centroid.y - centerY
+                        val dist = sqrt(dx * dx + dy * dy)
+                        
+                        val hitRadius = baseSizePx * 0.7f
+                        if (dist >= hitRadius || currentPortalExpansion > 0f) {
+                            val startRange = baseSizePx / 2f
+                            val endRange = size.width * 0.45f
+                            val newExpansion = ((dist - startRange) / (endRange - startRange)).coerceIn(0f, 1f)
+                            
+                            if (newExpansion > gestureMaxExpansion) {
+                                gestureMaxExpansion = newExpansion
+                                viewModel.setPortalExpansion(newExpansion)
+                            }
+                        }
+                    }
+                }
+        )
     }
 }

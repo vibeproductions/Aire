@@ -68,7 +68,7 @@ class SettingsRepository(private val context: Context) {
     }.onStart { emit(securePrefs.getString("google_api_key", null)) }
 
     // --- DataStore for General Settings ---
-    val aiModel: Flow<String> = context.dataStore.data.map { it[KEY_MODEL] ?: "claude-3-5-haiku-latest" }
+    val aiModel: Flow<String> = context.dataStore.data.map { it[KEY_MODEL] ?: "claude-haiku-4-5" }
     val appearance: Flow<String> = context.dataStore.data.map { it[KEY_APPEARANCE] ?: "System" }
     val locationFeaturesEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_LOCATION_ENABLED] ?: false }
     val storeLocationWithMemories: Flow<Boolean> = context.dataStore.data.map { it[KEY_STORE_LOCATION] ?: false }

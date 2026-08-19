@@ -74,6 +74,14 @@ data class MemoryRecordFts(
     val locationName: String?
 )
 
+@Entity(tableName = "history")
+data class HistoryRecordEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val summary: String,
+    val timestamp: Long
+)
+
 @Dao
 interface MemoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -92,9 +100,19 @@ interface MemoryDao {
         LIMIT :limit
     """)
     suspend fun search(query: String, limit: Int = 20): List<MemoryRecordEntity>
+
+    // --- History Management ---
+    @Insert
+    suspend fun insertHistory(record: HistoryRecordEntity)
+
+    @Query("SELECT * FROM history ORDER BY timestamp DESC")
+    fun observeHistory(): Flow<List<HistoryRecordEntity>>
+
+    @Query("DELETE FROM history")
+    suspend fun clearHistory()
 }
 
-@Database(entities = [MemoryRecordEntity::class, MemoryRecordFts::class], version = 3, exportSchema = false)
+@Database(entities = [MemoryRecordEntity::class, MemoryRecordFts::class, HistoryRecordEntity::class], version = 4, exportSchema = false)
 abstract class MemoryDatabase : RoomDatabase() {
     abstract fun dao(): MemoryDao
 
@@ -131,6 +149,19 @@ abstract class MemoryDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `history` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `title` TEXT NOT NULL, 
+                        `summary` TEXT NOT NULL, 
+                        `timestamp` INTEGER NOT NULL
+                    )
+                """)
+            }
+        }
+
         fun get(context: Context): MemoryDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -138,7 +169,7 @@ abstract class MemoryDatabase : RoomDatabase() {
                     MemoryDatabase::class.java,
                     "aire_memories"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build().also { INSTANCE = it }
             }
     }

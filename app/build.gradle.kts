@@ -81,11 +81,22 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/FastDoubleParser-LICENSE"
         }
     }
 }
 
 dependencies {
+    // Force secure versions of transitive dependencies (Socket Alerts)
+    constraints {
+        implementation("com.fasterxml.jackson.core:jackson-databind:2.22.2")
+        implementation("com.fasterxml.jackson.core:jackson-core:2.22.2")
+        implementation("org.apache.httpcomponents.core5:httpcore5:5.4.3")
+        implementation("org.apache.httpcomponents.core5:httpcore5-h2:5.4.3")
+        implementation("org.apache.httpcomponents.client5:httpclient5:5.6.4")
+        implementation("com.github.victools:jsonschema-generator:5.0.0")
+    }
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)

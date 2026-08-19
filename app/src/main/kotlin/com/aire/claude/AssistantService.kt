@@ -45,8 +45,10 @@ class AssistantService(
         context: String, // e.g. previous records or location
         history: List<MessageParam> = emptyList()
     ): AssistantResponse = withContext(Dispatchers.IO) {
+        android.util.Log.d("AssistantService", "Starting interaction with model: $model")
         val params = buildParams(text, image, context, history)
         val response = client.messages().create(params)
+        android.util.Log.d("AssistantService", "Received response from Claude")
 
         val rawText = buildString {
             response.content().forEach { block -> block.text().ifPresent { append(it.text()) } }
