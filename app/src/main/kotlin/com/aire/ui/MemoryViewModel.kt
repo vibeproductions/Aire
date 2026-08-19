@@ -215,7 +215,6 @@ class MemoryViewModel(
     }
 
     fun sendMessage(text: String) {
-        android.util.Log.d("MemoryViewModel", "sendMessage: $text")
         if (text.isBlank() && (uiState.value.capturedImage == null)) return
         
         val isFromHome = uiState.value.currentScreen == AppScreen.HOME
