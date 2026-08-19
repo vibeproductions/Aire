@@ -272,9 +272,14 @@ class MemoryViewModel(
                     
                     val assistantMessage = ChatMessage(text = response.explanation, isUser = false, response = response)
                     _uiState.update { it.copy(
-                        chatHistory = it.chatHistory + assistantMessage, 
-                        isThinking = false 
+                        chatHistory = it.chatHistory + assistantMessage,
+                        isThinking = false
                     ) }
+
+                    if (uiState.value.currentScreen == AppScreen.VOICE_MODE) {
+                        _uiState.update { it.copy(isSpeaking = true) }
+                        voiceSynthesizer?.speak(response.explanation)
+                    }
                 } else {
                     android.util.Log.w("MemoryViewModel", "No API key found.")
                     val assistantMessage = ChatMessage(text = "Please add your Anthropic API key in Settings.", isUser = false)
